@@ -20,7 +20,7 @@ end
 def handle_begin(req, res)
   sess = SecureRandom.uuid
   dir = Time.now.localtime.strftime('%Y%m%d-%H%M%S')
-  puts "#{sess} -> #{dir}"
+  $stderr.puts "#{sess} -> #{dir}"
   @sess_to_dir[sess] = dir
   res.cookies << WEBrick::Cookie.new('session', sess)
 end
@@ -103,6 +103,10 @@ def handle_finish(req, res)
   new_dir = "#{new_dir}-monthly" if now.day == 1
   File.rename("#{BASEDIR}/#{orig_dir}", "#{BASEDIR}/#{new_dir}")
   
+  cleanup
+end
+
+def cleanup
   paths = Dir.glob("#{BASEDIR}/20*-daily*").select{ |path|
     File.directory? path
   }.select{ |path|
@@ -137,7 +141,7 @@ def handle_finish(req, res)
   
   paths.length.times do |i|
     if removes[i]
-      puts "rm -r #{paths[i]}"
+      $stderr.puts "rm -r #{paths[i]}"
       FileUtils.rm_r(paths[i])
     end
   end

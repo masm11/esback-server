@@ -1,0 +1,16 @@
+[Unit]
+Description=Server-side of esback
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/service/esback
+ExecStart=/home/service/esback/esback.rb
+#ExecStop=pkill
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
