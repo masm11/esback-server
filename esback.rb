@@ -6,12 +6,21 @@ require 'openssl'
 require 'fileutils'
 
 BASEDIR = '/home/backup/android'
+CACHEDIR = "#{BASEDIR}/.esback_cache"
+
+FileUtils.mkdir_p CACHEDIR
+256.times do |i|
+  hex = '%02x' % i
+  FileUtils.mkdir_p("#{CACHEDIR}/#{hex}")
+end
+
 
 @sess_to_dir = {}
 
 def handle_begin(req, res)
   sess = SecureRandom.uuid
   dir = Time.now.localtime.strftime('%Y%m%d-%H%M%S')
+  puts "#{sess} -> #{dir}"
   @sess_to_dir[sess] = dir
   res.cookies << WEBrick::Cookie.new('session', sess)
 end
@@ -24,18 +33,6 @@ def handle_file(req, res)
     return
   end
   
-  cachedir = "#{BASEDIR}/.esback_cache"
-  unless File.exist? cachedir
-    Dir.mkdir(cachedir)
-    16.times do |hi|
-      h = '%x' % hi
-      16.times do |lo|
-        l = '%x' % lo
-        Dir.mkdir("#{cachedir}/#{h}#{l}")
-      end
-    end
-  end
-  
   dir = "#{BASEDIR}/#{dir}"
   Dir.mkdir(dir) unless File.exist? dir
   
@@ -46,9 +43,9 @@ def handle_file(req, res)
   
   body = req.body
   body_sha256 = OpenSSL::Digest::SHA256.hexdigest(body)
-  new_cachefile = "#{cachedir}/#{filepath_div}/#{filepath_sha256}-#{body_sha256}"
+  new_cachefile = "#{CACHEDIR}/#{filepath_div}/#{filepath_sha256}-#{body_sha256}"
   
-  old_cachefile = Dir.glob("#{cachedir}/*/*-#{body_sha256}").first
+  old_cachefile = Dir.glob("#{CACHEDIR}/*/*-#{body_sha256}").first
   
   unless File.exist? new_cachefile
     if old_cachefile
@@ -70,18 +67,6 @@ def handle_keep(req, res)
     return
   end
   
-  cachedir = "#{BASEDIR}/.esback_cache"
-  unless File.exist? cachedir
-    Dir.mkdir(cachedir)
-    16.times do |hi|
-      h = '%x' % hi
-      16.times do |lo|
-        l = '%x' % lo
-        Dir.mkdir("#{cachedir}/#{h}#{l}")
-      end
-    end
-  end
-  
   dir = "#{BASEDIR}/#{dir}"
   Dir.mkdir(dir) unless File.exist? dir
   
@@ -92,7 +77,7 @@ def handle_keep(req, res)
       filepath_div = filepath_sha256.slice(0, 2)
       filepath = "#{dir}/#{filepath}"
       
-      new_cachefile = Dir.glob("#{cachedir}/#{filepath_div}/#{filepath_sha256}-*").first
+      new_cachefile = Dir.glob("#{CACHEDIR}/#{filepath_div}/#{filepath_sha256}-*").first
       if new_cachefile
         FileUtils.mkdir_p File.dirname(filepath)
         File.link new_cachefile, filepath
@@ -109,8 +94,54 @@ def handle_finish(req, res)
     res.status = 403
     return
   end
-  puts dir
   @sess_to_dir[sess] = nil
+  
+  orig_dir = dir
+  new_dir = "#{dir}-daily"
+  now = Time.now.localtime
+  new_dir = "#{new_dir}-weekly" if now.monday?
+  new_dir = "#{new_dir}-monthly" if now.day == 1
+  File.rename("#{BASEDIR}/#{orig_dir}", "#{BASEDIR}/#{new_dir}")
+  
+  paths = Dir.glob("#{BASEDIR}/20*-daily*").select{ |path|
+    File.directory? path
+  }.select{ |path|
+    path =~ %r|/\d{8}-\d{6}(-daily)?(-weekly)?(-monthly)?$|
+  }.sort.reverse
+  
+  removes = [ true ] * paths.length
+  
+  ctr = 0
+  paths.length.times do |i|
+    if paths[i] =~ /-daily/
+      removes[i] = false if ctr < 3
+      ctr += 1
+    end
+  end
+  
+  ctr = 0
+  paths.length.times do |i|
+    if paths[i] =~ /-weekly/
+      removes[i] = false if ctr < 2
+      ctr += 1
+    end
+  end
+  
+  ctr = 0
+  paths.length.times do |i|
+    if paths[i] =~ /-monthly/
+      removes[i] = false if ctr < 2
+      ctr += 1
+    end
+  end
+  
+  paths.length.times do |i|
+    if removes[i]
+      puts "rm -r #{paths[i]}"
+      FileUtils.rm_r(paths[i])
+    end
+  end
+  
 end
 
 srv = WEBrick::HTTPServer.new({
